@@ -3,7 +3,6 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "skipLibCheck": true,
-    "types": ["node"]
+    "skipLibCheck": true
   }
 }
