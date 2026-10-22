@@ -1,4 +1,7 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
+
+// Vercel serverless execution duration limit (extend up to 30s)
+export const maxDuration = 30;
 
 async function getRequestBody(req: any): Promise<any> {
   if (req.body) {
@@ -12,7 +15,7 @@ async function getRequestBody(req: any): Promise<any> {
     return req.body;
   }
 
-  // If body parser did not run on Vercel Serverless Function, consume stream
+  // If body parser did not run, read stream
   return new Promise((resolve) => {
     let raw = '';
     req.on('data', (chunk: any) => {
@@ -61,7 +64,7 @@ export default async function handler(req: any, res: any) {
 
   if (!apiKey) {
     console.warn('Gemini API key is not found in environment variables');
-    return returnFallback(body, res, 'Gemini APIキーがVercelの環境変数に設定されていません');
+    return returnFallback(body, res, 'APIキー未設定', 'Gemini APIキーがVercelの環境変数に設定されていません');
   }
 
   const ai = new GoogleGenAI({
@@ -98,7 +101,7 @@ ${legalMoves
 
 上記の手から最も良い1手をインデックス（0から${legalMoves.length - 1}まで）で選び、初心者への解説コメントと共にJSONで出力してください。`;
 
-  // Try gemini-2.5-flash first (fastest, highest availability), fallback to gemini-3.8-flash
+  // Try fast lightweight models: gemini-2.5-flash first, then gemini-3.8-flash
   const modelsToTry = ['gemini-2.5-flash', 'gemini-3.8-flash'];
   let lastError: any = null;
 
@@ -110,6 +113,10 @@ ${legalMoves
         config: {
           systemInstruction,
           responseMimeType: 'application/json',
+          // Use LOW thinking level for super-fast response within 1-2 seconds (prevents Vercel timeouts)
+          thinkingConfig: {
+            thinkingLevel: ThinkingLevel.LOW,
+          },
           responseSchema: {
             type: Type.OBJECT,
             properties: {
@@ -143,16 +150,26 @@ ${legalMoves
         modelUsed: modelName,
       });
     } catch (err: any) {
-      console.warn(`Model ${modelName} failed:`, err?.message);
+      console.warn(`Model ${modelName} error:`, err?.message);
       lastError = err;
     }
   }
 
-  // If all models failed (e.g. rate limit or network issue), use rule-based fallback
-  return returnFallback(body, res, lastError?.message || 'Gemini API一時混雑またはエラー');
+  // Parse specific error category
+  const errMsg = String(lastError?.message || '');
+  let shortReason = '一時混雑・遅延';
+  if (errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('demand')) {
+    shortReason = 'Google側一時混雑(503)';
+  } else if (errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota')) {
+    shortReason = 'API利用制限(429)';
+  } else if (errMsg.includes('timeout') || errMsg.includes('504')) {
+    shortReason = '応答時間超過(タイムアウト)';
+  }
+
+  return returnFallback(body, res, shortReason, errMsg);
 }
 
-function returnFallback(body: any, res: any, reason: string) {
+function returnFallback(body: any, res: any, shortReason: string, rawDetail: string) {
   const legalMoves = body?.legalMoves || [];
   if (!legalMoves.length) {
     return res.status(500).json({ error: 'No legal moves', fallbackNeeded: true });
@@ -184,6 +201,7 @@ function returnFallback(body: any, res: any, reason: string) {
     move: bestMove,
     comment: chosenComment,
     source: 'heuristic-fallback',
-    notice: reason,
+    fallbackReason: shortReason,
+    notice: rawDetail,
   });
 }

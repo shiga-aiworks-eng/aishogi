@@ -1314,7 +1314,7 @@
       el.textContent = `「${comment}」`;
     }
 
-    function updateEngineStatus(source) {
+    function updateEngineStatus(source, reason) {
       const badge = document.getElementById('ai-engine-badge');
       const icon = document.getElementById('ai-engine-icon');
       const text = document.getElementById('ai-engine-text');
@@ -1323,17 +1323,18 @@
       if (source === 'gemini') {
         if (badge) badge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-amber-950/70 text-amber-300 border border-amber-800/40';
         if (icon) icon.className = 'fa-solid fa-brain text-amber-400 text-[10px]';
-        if (text) text.textContent = 'Gemini 3.8 Flash 思考中';
+        if (text) text.textContent = 'Gemini Flash 思考中';
         if (tag) {
           tag.textContent = '【Gemini 思考】';
           tag.className = 'text-[10px] text-amber-400 font-medium';
         }
       } else {
+        const reasonText = reason ? `(${reason})` : '代行';
         if (badge) badge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-stone-800/90 text-cyan-300 border border-cyan-800/40';
         if (icon) icon.className = 'fa-solid fa-microchip text-cyan-400 text-[10px]';
-        if (text) text.textContent = '内蔵ルールベースAI（代行）';
+        if (text) text.textContent = `内蔵AI代行 ${reasonText}`;
         if (tag) {
-          tag.textContent = '【内蔵AI代行】';
+          tag.textContent = `【内蔵AI代行 ${reasonText}】`;
           tag.className = 'text-[10px] text-cyan-400 font-medium';
         }
       }
@@ -1357,7 +1358,7 @@
       } catch (e) {
         console.warn('[AI Shogi] /api/health unreachable:', e);
       }
-      updateEngineStatus('fallback');
+      updateEngineStatus('fallback', 'オフライン');
     }
 
     /**
@@ -1378,6 +1379,7 @@
       let chosenMove = null;
       let aiComment = '';
       let isGemini = false;
+      let fallbackReason = '';
 
       try {
         const boardSummary = formatBoardForAI();
@@ -1402,6 +1404,7 @@
             chosenMove = data.move;
             aiComment = data.comment;
             isGemini = (data.source === 'gemini');
+            fallbackReason = data.fallbackReason || '';
             if (data.notice) {
               console.warn('[AI Shogi] AI Move Notice:', data.notice);
             }
@@ -1409,9 +1412,11 @@
         } else {
           const errText = await response.text();
           console.warn('[AI Shogi] /api/ai-move returned HTTP', response.status, errText);
+          fallbackReason = response.status === 504 ? 'タイムアウト' : `HTTP ${response.status}`;
         }
       } catch (err) {
         console.warn('[AI Shogi] Backend Gemini API fetch failed, switching to fallback AI:', err);
+        fallbackReason = '通信エラー';
       }
 
       // If Gemini API did not return or encountered an error, use intelligent Heuristic Fallback AI
@@ -1420,9 +1425,10 @@
         chosenMove = fallbackResult.move;
         aiComment = fallbackResult.comment;
         isGemini = false;
+        if (!fallbackReason) fallbackReason = '自動切替';
       }
 
-      updateEngineStatus(isGemini ? 'gemini' : 'fallback');
+      updateEngineStatus(isGemini ? 'gemini' : 'fallback', fallbackReason);
 
       // Apply the chosen AI move
       if (chosenMove.type === 'move') {
