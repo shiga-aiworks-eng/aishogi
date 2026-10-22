@@ -1344,13 +1344,18 @@
         const res = await fetch('/api/health');
         if (res.ok) {
           const data = await res.json();
+          console.log('[AI Shogi] /api/health status:', data);
           if (data.hasApiKey) {
             updateEngineStatus('gemini');
             return;
+          } else {
+            console.warn('[AI Shogi] GEMINI_API_KEY is not detected on server. Using fallback.');
           }
+        } else {
+          console.warn('[AI Shogi] /api/health responded with HTTP', res.status);
         }
       } catch (e) {
-        // offline or static host
+        console.warn('[AI Shogi] /api/health unreachable:', e);
       }
       updateEngineStatus('fallback');
     }
@@ -1392,14 +1397,21 @@
 
         if (response.ok) {
           const data = await response.json();
+          console.log('[AI Shogi] /api/ai-move response:', data);
           if (data && data.move) {
             chosenMove = data.move;
             aiComment = data.comment;
             isGemini = (data.source === 'gemini');
+            if (data.notice) {
+              console.warn('[AI Shogi] AI Move Notice:', data.notice);
+            }
           }
+        } else {
+          const errText = await response.text();
+          console.warn('[AI Shogi] /api/ai-move returned HTTP', response.status, errText);
         }
       } catch (err) {
-        console.warn('Backend Gemini API unavailable, smoothly switching to fallback AI:', err);
+        console.warn('[AI Shogi] Backend Gemini API fetch failed, switching to fallback AI:', err);
       }
 
       // If Gemini API did not return or encountered an error, use intelligent Heuristic Fallback AI

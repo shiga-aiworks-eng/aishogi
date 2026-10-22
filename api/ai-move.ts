@@ -1,5 +1,36 @@
 import { GoogleGenAI, Type } from '@google/genai';
 
+async function getRequestBody(req: any): Promise<any> {
+  if (req.body) {
+    if (typeof req.body === 'string') {
+      try {
+        return JSON.parse(req.body);
+      } catch {
+        return {};
+      }
+    }
+    return req.body;
+  }
+
+  // If body parser did not run on Vercel Serverless Function, consume stream
+  return new Promise((resolve) => {
+    let raw = '';
+    req.on('data', (chunk: any) => {
+      raw += chunk;
+    });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(raw));
+      } catch {
+        resolve({});
+      }
+    });
+    req.on('error', () => {
+      resolve({});
+    });
+  });
+}
+
 export default async function handler(req: any, res: any) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -14,34 +45,41 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  try {
-    const { legalMoves, boardSummary, capturedPieces, moveHistory } = req.body || {};
+  const body = await getRequestBody(req);
+  const { legalMoves, boardSummary, capturedPieces, moveHistory } = body || {};
 
-    if (!legalMoves || !Array.isArray(legalMoves) || legalMoves.length === 0) {
-      return res.status(400).json({ error: 'No legal moves provided' });
-    }
+  if (!legalMoves || !Array.isArray(legalMoves) || legalMoves.length === 0) {
+    return res.status(400).json({ error: 'No legal moves provided' });
+  }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return returnFallback(req, res, 'Gemini API Key is not set in Environment Variables');
-    }
+  // Check multiple common environment variable names
+  const apiKey =
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.API_KEY ||
+    process.env.VITE_GEMINI_API_KEY;
 
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
+  if (!apiKey) {
+    console.warn('Gemini API key is not found in environment variables');
+    return returnFallback(body, res, 'Gemini APIキーがVercelの環境変数に設定されていません');
+  }
+
+  const ai = new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
       },
-    });
+    },
+  });
 
-    const systemInstruction = `あなたは将棋を覚えたての初心者を優しく導く親切な将棋の先生（師匠）です。
+  const systemInstruction = `あなたは将棋を覚えたての初心者を優しく導く親切な将棋の先生（師匠）です。
 後手（△白/AI）として、提供された「合法手リスト（legalMoves）」の中から最善と思われる手を1つ選び、JSON形式で返答してください。
 また、初心者プレイヤーに向けて、なぜその手を指したのか、盤面の状況やポイントを親しみやすい温かい日本語で1〜2文でアドバイス・解説コメント（comment）として添えてください。
 ルール:
 必ず提供された合法手リストのインデックス（chosenIndex）を厳密に指定してください。範囲外のインデックスは無効です。`;
 
-    const promptText = `【現在の盤面状態】
+  const promptText = `【現在の盤面状態】
 ${boardSummary || '盤面情報'}
 
 【後手（AI）の持ち駒】
@@ -60,48 +98,62 @@ ${legalMoves
 
 上記の手から最も良い1手をインデックス（0から${legalMoves.length - 1}まで）で選び、初心者への解説コメントと共にJSONで出力してください。`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: promptText,
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            chosenIndex: {
-              type: Type.INTEGER,
-              description: `合法手リストの中から選択した手の0-indexed番号 (0〜${legalMoves.length - 1})`,
+  // Try gemini-2.5-flash first (fastest, highest availability), fallback to gemini-3.8-flash
+  const modelsToTry = ['gemini-2.5-flash', 'gemini-3.8-flash'];
+  let lastError: any = null;
+
+  for (const modelName of modelsToTry) {
+    try {
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents: promptText,
+        config: {
+          systemInstruction,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              chosenIndex: {
+                type: Type.INTEGER,
+                description: `合法手リストの中から選択した手の0-indexed番号 (0〜${legalMoves.length - 1})`,
+              },
+              comment: {
+                type: Type.STRING,
+                description: '初心者への親しみやすく温かい一言解説・アドバイス (1〜2文)',
+              },
             },
-            comment: {
-              type: Type.STRING,
-              description: '初心者への親しみやすく温かい一言解説・アドバイス (1〜2文)',
-            },
+            required: ['chosenIndex', 'comment'],
           },
-          required: ['chosenIndex', 'comment'],
         },
-      },
-    });
+      });
 
-    const parsed = JSON.parse(response.text || '{}');
-    const chosenIndex = typeof parsed.chosenIndex === 'number' && parsed.chosenIndex >= 0 && parsed.chosenIndex < legalMoves.length
-      ? parsed.chosenIndex
-      : 0;
+      const parsed = JSON.parse(response.text || '{}');
+      const chosenIndex =
+        typeof parsed.chosenIndex === 'number' &&
+        parsed.chosenIndex >= 0 &&
+        parsed.chosenIndex < legalMoves.length
+          ? parsed.chosenIndex
+          : 0;
 
-    const chosenMove = legalMoves[chosenIndex];
-    return res.status(200).json({
-      move: chosenMove,
-      comment: parsed.comment || '落ち着いて次の手を考えましょう！',
-      source: 'gemini',
-    });
-  } catch (error: any) {
-    console.warn('Gemini API call failed, applying heuristic fallback:', error?.message);
-    return returnFallback(req, res, error?.message);
+      const chosenMove = legalMoves[chosenIndex];
+      return res.status(200).json({
+        move: chosenMove,
+        comment: parsed.comment || '落ち着いて次の手を考えましょう！',
+        source: 'gemini',
+        modelUsed: modelName,
+      });
+    } catch (err: any) {
+      console.warn(`Model ${modelName} failed:`, err?.message);
+      lastError = err;
+    }
   }
+
+  // If all models failed (e.g. rate limit or network issue), use rule-based fallback
+  return returnFallback(body, res, lastError?.message || 'Gemini API一時混雑またはエラー');
 }
 
-function returnFallback(req: any, res: any, reason: string) {
-  const legalMoves = req.body?.legalMoves || [];
+function returnFallback(body: any, res: any, reason: string) {
+  const legalMoves = body?.legalMoves || [];
   if (!legalMoves.length) {
     return res.status(500).json({ error: 'No legal moves', fallbackNeeded: true });
   }
@@ -124,7 +176,7 @@ function returnFallback(req: any, res: any, reason: string) {
     '歩を進めて陣形を整えます。序盤は駒の活用が大切ですよ！',
     '駒を前進させて中央の制圧を狙います。慌てず受けてみてくださいね。',
     '角や飛車の利きに注意しながら、じっくり攻めを組み立てましょう。',
-    '王様の守りも意識しながら、攻めの隙を伺っています。'
+    '王様の守りも意識しながら、攻めの隙を伺っています。',
   ];
   const chosenComment = comments[Math.floor(Math.random() * comments.length)];
 
