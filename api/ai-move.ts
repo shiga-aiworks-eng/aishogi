@@ -116,10 +116,12 @@ ${legalMoves
       config: {
         systemInstruction,
         responseMimeType: 'application/json',
-        // Use LOW thinking level for super-fast response within 1-2 seconds (prevents Vercel timeouts)
+        // 【最適化】タイムアウト回避のため、最小推論、低温度、トークン制限を適用
         thinkingConfig: {
-          thinkingLevel: ThinkingLevel.LOW,
+          thinkingLevel: ThinkingLevel.MINIMAL,
         },
+        temperature: 0.2,
+        maxOutputTokens: 150,
         responseSchema: {
           type: Type.OBJECT,
           properties: {
