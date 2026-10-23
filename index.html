@@ -186,12 +186,17 @@
               <span class="text-sm font-serif font-bold text-stone-100">藤井 師匠 (AI)</span>
               <span class="text-[11px] px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800/40">後手 △</span>
             </div>
-            <!-- Dynamic engine status badge -->
-            <div class="mt-1 flex items-center gap-1.5">
-              <span id="ai-engine-badge" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-amber-950/70 text-amber-300 border border-amber-800/40">
+            <!-- Dynamic engine status badge & model selector -->
+            <div class="mt-1.5 flex flex-col gap-1.5">
+              <span id="ai-engine-badge" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-amber-950/70 text-amber-300 border border-amber-800/40 w-fit">
                 <i id="ai-engine-icon" class="fa-solid fa-brain text-amber-400 text-[10px]"></i>
-                <span id="ai-engine-text">Gemini 3.8 Flash 連携中</span>
+                <span id="ai-engine-text">Gemini Flash 連携中</span>
               </span>
+              <select id="ai-model-select" class="bg-stone-800 text-stone-200 text-[11px] px-2 py-0.5 rounded border border-stone-700 cursor-pointer hover:bg-stone-700 focus:outline-none focus:ring-1 focus:ring-amber-500 w-full max-w-[160px]">
+                <option value="gemini-3.8-flash">Gemini 3.8 Flash (汎用)</option>
+                <option value="gemini-2.5-flash">Gemini 2.5 Flash (高速)</option>
+                <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (最速)</option>
+              </select>
             </div>
           </div>
         </div>
@@ -1393,7 +1398,8 @@
             legalMoves: allLegalMoves,
             boardSummary,
             capturedPieces: capturedSummary,
-            moveHistory: historySummary
+            moveHistory: historySummary,
+            model: document.getElementById('ai-model-select').value
           })
         });
 

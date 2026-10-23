@@ -49,11 +49,15 @@ export default async function handler(req: any, res: any) {
   }
 
   const body = await getRequestBody(req);
-  const { legalMoves, boardSummary, capturedPieces, moveHistory } = body || {};
+  const { legalMoves, boardSummary, capturedPieces, moveHistory, model } = body || {};
 
   if (!legalMoves || !Array.isArray(legalMoves) || legalMoves.length === 0) {
     return res.status(400).json({ error: 'No legal moves provided' });
   }
+
+  // Allowed models list (Free tier models)
+  const allowedModels = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'];
+  const selectedModel = allowedModels.includes(model) ? model : 'gemini-3.8-flash';
 
   // Check multiple common environment variable names
   const apiKey =
@@ -101,58 +105,56 @@ ${legalMoves
 
 上記の手から最も良い1手をインデックス（0から${legalMoves.length - 1}まで）で選び、初心者への解説コメントと共にJSONで出力してください。`;
 
-  // Try fast lightweight models: gemini-2.5-flash first, then gemini-3.8-flash
-  const modelsToTry = ['gemini-2.5-flash', 'gemini-3.8-flash'];
+  // Use the selected model
+  const modelName = selectedModel;
   let lastError: any = null;
 
-  for (const modelName of modelsToTry) {
-    try {
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents: promptText,
-        config: {
-          systemInstruction,
-          responseMimeType: 'application/json',
-          // Use LOW thinking level for super-fast response within 1-2 seconds (prevents Vercel timeouts)
-          thinkingConfig: {
-            thinkingLevel: ThinkingLevel.LOW,
-          },
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              chosenIndex: {
-                type: Type.INTEGER,
-                description: `合法手リストの中から選択した手の0-indexed番号 (0〜${legalMoves.length - 1})`,
-              },
-              comment: {
-                type: Type.STRING,
-                description: '初心者への親しみやすく温かい一言解説・アドバイス (1〜2文)',
-              },
-            },
-            required: ['chosenIndex', 'comment'],
-          },
+  try {
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents: promptText,
+      config: {
+        systemInstruction,
+        responseMimeType: 'application/json',
+        // Use LOW thinking level for super-fast response within 1-2 seconds (prevents Vercel timeouts)
+        thinkingConfig: {
+          thinkingLevel: ThinkingLevel.LOW,
         },
-      });
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            chosenIndex: {
+              type: Type.INTEGER,
+              description: `合法手リストの中から選択した手の0-indexed番号 (0〜${legalMoves.length - 1})`,
+            },
+            comment: {
+              type: Type.STRING,
+              description: '初心者への親しみやすく温かい一言解説・アドバイス (1〜2文)',
+            },
+          },
+          required: ['chosenIndex', 'comment'],
+        },
+      },
+    });
 
-      const parsed = JSON.parse(response.text || '{}');
-      const chosenIndex =
-        typeof parsed.chosenIndex === 'number' &&
-        parsed.chosenIndex >= 0 &&
-        parsed.chosenIndex < legalMoves.length
-          ? parsed.chosenIndex
-          : 0;
+    const parsed = JSON.parse(response.text || '{}');
+    const chosenIndex =
+      typeof parsed.chosenIndex === 'number' &&
+      parsed.chosenIndex >= 0 &&
+      parsed.chosenIndex < legalMoves.length
+        ? parsed.chosenIndex
+        : 0;
 
-      const chosenMove = legalMoves[chosenIndex];
-      return res.status(200).json({
-        move: chosenMove,
-        comment: parsed.comment || '落ち着いて次の手を考えましょう！',
-        source: 'gemini',
-        modelUsed: modelName,
-      });
-    } catch (err: any) {
-      console.warn(`Model ${modelName} error:`, err?.message);
-      lastError = err;
-    }
+    const chosenMove = legalMoves[chosenIndex];
+    return res.status(200).json({
+      move: chosenMove,
+      comment: parsed.comment || '落ち着いて次の手を考えましょう！',
+      source: 'gemini',
+      modelUsed: modelName,
+    });
+  } catch (err: any) {
+    console.warn(`Model ${modelName} error:`, err?.message);
+    lastError = err;
   }
 
   // Parse specific error category
