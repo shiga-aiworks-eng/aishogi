@@ -192,9 +192,10 @@
                 <i id="ai-engine-icon" class="fa-solid fa-brain text-amber-400 text-[10px]"></i>
                 <span id="ai-engine-text">Gemini Flash 連携中</span>
               </span>
-              <select id="ai-model-select" class="bg-stone-800 text-stone-200 text-[11px] px-2 py-0.5 rounded border border-stone-700 cursor-pointer hover:bg-stone-700 focus:outline-none focus:ring-1 focus:ring-amber-500 w-full max-w-[160px]">
-                <option value="gemini-3.8-flash">Gemini 3.8 Flash (汎用)</option>
+              <select id="ai-model-select" class="bg-stone-800 text-stone-200 text-[11px] px-2 py-0.5 rounded border border-stone-700 cursor-pointer hover:bg-stone-700 focus:outline-none focus:ring-1 focus:ring-amber-500 w-full max-w-[180px]">
+                <option value="gemini-flash-latest">Gemini Flash Latest (無料枠標準)</option>
                 <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (最速)</option>
+                <option value="gemini-3.8-flash">Gemini 3.8 Flash (汎用)</option>
               </select>
             </div>
           </div>
@@ -213,6 +214,7 @@
               <p id="ai-comment-text" class="text-sm text-amber-100/90 leading-relaxed">
                 「よろしくお願いします！盤上の駒に付いている丸印（ガイド）を見ながら、自由に指してみてくださいね。」
               </p>
+              <div id="ai-fallback-detail" class="hidden mt-2 pt-2 border-t border-stone-800 text-[11px] text-amber-300/90 leading-relaxed"></div>
             </div>
           </div>
         </div>
@@ -1318,28 +1320,41 @@
       el.textContent = `「${comment}」`;
     }
 
-    function updateEngineStatus(source, reason) {
+    function updateEngineStatus(source, reason, detailNotice) {
       const badge = document.getElementById('ai-engine-badge');
       const icon = document.getElementById('ai-engine-icon');
       const text = document.getElementById('ai-engine-text');
       const tag = document.getElementById('ai-source-tag');
+      const detailEl = document.getElementById('ai-fallback-detail');
 
       if (source === 'gemini') {
-        if (badge) badge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-amber-950/70 text-amber-300 border border-amber-800/40';
+        if (badge) badge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-amber-950/70 text-amber-300 border border-amber-800/40 w-fit';
         if (icon) icon.className = 'fa-solid fa-brain text-amber-400 text-[10px]';
-        if (text) text.textContent = 'Gemini Flash 思考中';
+        if (text) text.textContent = reason ? `Gemini (${reason})` : 'Gemini Flash 思考中';
         if (tag) {
           tag.textContent = '【Gemini 思考】';
           tag.className = 'text-[10px] text-amber-400 font-medium';
         }
+        if (detailEl) {
+          detailEl.classList.add('hidden');
+          detailEl.textContent = '';
+        }
       } else {
         const reasonText = reason ? `(${reason})` : '代行';
-        if (badge) badge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-stone-800/90 text-cyan-300 border border-cyan-800/40';
+        if (badge) badge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-stone-800/90 text-cyan-300 border border-cyan-800/40 w-fit';
         if (icon) icon.className = 'fa-solid fa-microchip text-cyan-400 text-[10px]';
         if (text) text.textContent = `内蔵AI代行 ${reasonText}`;
         if (tag) {
           tag.textContent = `【内蔵AI代行 ${reasonText}】`;
           tag.className = 'text-[10px] text-cyan-400 font-medium';
+        }
+        if (detailEl) {
+          if (detailNotice) {
+            detailEl.textContent = `※代行理由: ${detailNotice}`;
+            detailEl.classList.remove('hidden');
+          } else {
+            detailEl.classList.add('hidden');
+          }
         }
       }
     }
@@ -1384,6 +1399,8 @@
       let aiComment = '';
       let isGemini = false;
       let fallbackReason = '';
+      let detailNotice = '';
+      let modelUsed = '';
 
       try {
         const boardSummary = formatBoardForAI();
@@ -1409,7 +1426,9 @@
             chosenMove = data.move;
             aiComment = data.comment;
             isGemini = (data.source === 'gemini');
+            modelUsed = data.modelUsed || '';
             fallbackReason = data.fallbackReason || '';
+            detailNotice = data.notice || '';
             if (data.notice) {
               console.warn('[AI Shogi] AI Move Notice:', data.notice);
             }
@@ -1433,7 +1452,7 @@
         if (!fallbackReason) fallbackReason = '自動切替';
       }
 
-      updateEngineStatus(isGemini ? 'gemini' : 'fallback', fallbackReason);
+      updateEngineStatus(isGemini ? 'gemini' : 'fallback', isGemini ? modelUsed : fallbackReason, detailNotice);
 
       // Apply the chosen AI move
       if (chosenMove.type === 'move') {
