@@ -56,7 +56,7 @@ export default async function handler(req: any, res: any) {
   }
 
   // Allowed models list (Free tier models)
-  const allowedModels = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'];
+  const allowedModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
   const selectedModel = allowedModels.includes(model) ? model : 'gemini-3.8-flash';
 
   // Check multiple common environment variable names
@@ -82,7 +82,7 @@ export default async function handler(req: any, res: any) {
 
   const systemInstruction = `あなたは将棋を覚えたての初心者を優しく導く親切な将棋の先生（師匠）です。
 後手（△白/AI）として、提供された「合法手リスト（legalMoves）」の中から最善と思われる手を1つ選び、JSON形式で返答してください。
-また、初心者プレイヤーに向けて、なぜその手を指したのか、盤面の状況やポイントを親しみやすい温かい日本語で1〜2文でアドバイス・解説コメント（comment）として添えてください。
+また、初心者プレイヤーに向けて、なぜその手を指したのか、盤面の状況やポイントを親しみやすい温かい日本語で1文（40文字以内）で簡潔にアドバイス・解説コメント（comment）として添えてください。
 ルール:
 必ず提供された合法手リストのインデックス（chosenIndex）を厳密に指定してください。範囲外のインデックスは無効です。`;
 
@@ -116,12 +116,11 @@ ${legalMoves
       config: {
         systemInstruction,
         responseMimeType: 'application/json',
-        // 【最適化】タイムアウト回避のため、最小推論、低温度、トークン制限を適用
+        // 【最適化】タイムアウト回避のため、最小推論、低温度を適用
         thinkingConfig: {
           thinkingLevel: ThinkingLevel.MINIMAL,
         },
         temperature: 0.2,
-        maxOutputTokens: 150,
         responseSchema: {
           type: Type.OBJECT,
           properties: {
